@@ -2,6 +2,7 @@ package com.example.myapplication.routedrop
 
 import com.example.myapplication.map.MapLocationPickerDialog
 
+import android.view.MotionEvent
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.LocalShipping
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.Map
@@ -36,6 +38,10 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,6 +72,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
@@ -97,7 +104,7 @@ import androidx.compose.ui.tooling.preview.Preview
 
 
 enum class BottomTab {
-    HOME, RATES, NEARBY, ME
+    HOME, TRACK, NEARBY, ME
 }
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -117,6 +124,9 @@ fun RouteDropScreen(
 
     // State for Courier tracking Map
     var deliveryToTrack by remember { mutableStateOf<Delivery?>(null) }
+
+    // State for Deleting / Modifying Customer Request
+    var deliveryToDelete by remember { mutableStateOf<Delivery?>(null) }
 
     // State for Customer flow
     var pickupName by remember { mutableStateOf(loggedInUser.address) }
@@ -294,10 +304,10 @@ fun RouteDropScreen(
                     label = { Text("Home") }
                 )
                 NavigationBarItem(
-                    selected = currentTab == BottomTab.RATES,
-                    onClick = { currentTab = BottomTab.RATES },
-                    icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
-                    label = { Text("Rates") }
+                    selected = currentTab == BottomTab.TRACK,
+                    onClick = { currentTab = BottomTab.TRACK },
+                    icon = { Icon(Icons.Default.LocalShipping, contentDescription = null) },
+                    label = { Text("Track") }
                 )
                 NavigationBarItem(
                     selected = currentTab == BottomTab.NEARBY,
@@ -431,10 +441,24 @@ fun RouteDropScreen(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("Request from: ${delivery.customer.name}", fontWeight = FontWeight.Bold)
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "Request from: ${delivery.customer.name}",
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        StatusBadge(status = delivery.status)
+                                    }
                                 }
                                 Text("Pickup: ${delivery.pickup.locationName}")
                                 Text("Drop-off: ${delivery.dropOff.locationName}")
@@ -719,54 +743,88 @@ fun RouteDropScreen(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
                 var previewMapViewRef by remember { mutableStateOf<MapView?>(null) }
+                var lastRenderedPickupLat by remember { mutableDoubleStateOf(Double.NaN) }
+                var lastRenderedPickupLng by remember { mutableDoubleStateOf(Double.NaN) }
+                var lastRenderedDropOffLat by remember { mutableDoubleStateOf(Double.NaN) }
+                var lastRenderedDropOffLng by remember { mutableDoubleStateOf(Double.NaN) }
+                var lastRoutePointsCount by remember { mutableStateOf(-1) }
+
                 Box(modifier = Modifier.fillMaxSize()) {
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
                             MapView(ctx).apply {
-                                setTileSource(TileSourceFactory.MAPNIK)
+                                setTileSource(com.example.myapplication.map.MapStyles.GOOGLE_MAPS)
                                 setMultiTouchControls(true)
                                 controller.setZoom(13.0)
+                                setOnTouchListener { v, event ->
+                                    when (event.action) {
+                                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                                        }
+                                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                                        }
+                                    }
+                                    if (event.action == MotionEvent.ACTION_UP) {
+                                        v.performClick()
+                                    }
+                                    false
+                                }
                                 previewMapViewRef = this
                             }
                         },
                         update = { mapView ->
-                            mapView.overlays.removeAll { it is Marker || it is Polyline }
-                            
-                            val pickupGeo = GeoPoint(pickupLat, pickupLng)
-                            val dropOffGeo = GeoPoint(dropOffLat, dropOffLng)
-                            
-                            // Draw Route Polyline
-                            if (routePoints.isNotEmpty()) {
-                                val polyline = Polyline().apply {
-                                    setPoints(routePoints)
-                                    outlinePaint.color = android.graphics.Color.parseColor("#9C27B0") // Purple route
-                                    outlinePaint.strokeWidth = 10f
-                                }
-                                mapView.overlays.add(polyline)
+                            val locationChanged = pickupLat != lastRenderedPickupLat ||
+                                    pickupLng != lastRenderedPickupLng ||
+                                    dropOffLat != lastRenderedDropOffLat ||
+                                    dropOffLng != lastRenderedDropOffLng ||
+                                    routePoints.size != lastRoutePointsCount
+
+                            if (locationChanged) {
+                                lastRenderedPickupLat = pickupLat
+                                lastRenderedPickupLng = pickupLng
+                                lastRenderedDropOffLat = dropOffLat
+                                lastRenderedDropOffLng = dropOffLng
+                                lastRoutePointsCount = routePoints.size
+
+                                mapView.overlays.removeAll { it is Marker || it is Polyline }
                                 
-                                // Center on the middle of the route
-                                val midLat = (pickupLat + dropOffLat) / 2
-                                val midLng = (pickupLng + dropOffLng) / 2
-                                mapView.controller.setCenter(GeoPoint(midLat, midLng))
-                            } else {
-                                mapView.controller.setCenter(pickupGeo)
+                                val pickupGeo = GeoPoint(pickupLat, pickupLng)
+                                val dropOffGeo = GeoPoint(dropOffLat, dropOffLng)
+                                
+                                // Draw Route Polyline
+                                if (routePoints.isNotEmpty()) {
+                                    val polyline = Polyline().apply {
+                                        setPoints(routePoints)
+                                        outlinePaint.color = android.graphics.Color.parseColor("#9C27B0") // Purple route
+                                        outlinePaint.strokeWidth = 10f
+                                    }
+                                    mapView.overlays.add(polyline)
+                                    
+                                    // Center on the middle of the route
+                                    val midLat = (pickupLat + dropOffLat) / 2
+                                    val midLng = (pickupLng + dropOffLng) / 2
+                                    mapView.controller.setCenter(GeoPoint(midLat, midLng))
+                                } else {
+                                    mapView.controller.setCenter(pickupGeo)
+                                }
+                                
+                                val pMarker = Marker(mapView).apply {
+                                    position = pickupGeo
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                    title = "Pickup: $pickupName"
+                                }
+                                val dMarker = Marker(mapView).apply {
+                                    position = dropOffGeo
+                                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                    title = "Drop-off: $dropOffName"
+                                }
+                                
+                                mapView.overlays.add(pMarker)
+                                mapView.overlays.add(dMarker)
+                                mapView.invalidate()
                             }
-                            
-                            val pMarker = Marker(mapView).apply {
-                                position = pickupGeo
-                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                title = "Pickup: $pickupName"
-                            }
-                            val dMarker = Marker(mapView).apply {
-                                position = dropOffGeo
-                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                                title = "Drop-off: $dropOffName"
-                            }
-                            
-                            mapView.overlays.add(pMarker)
-                            mapView.overlays.add(dMarker)
-                            mapView.invalidate()
                         }
                     )
                 }
@@ -796,7 +854,7 @@ fun RouteDropScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("Estimated ETA:", fontSize = 14.sp)
+                        Text("Estimated Time of Arrival:", fontSize = 14.sp)
                         Spacer(modifier = Modifier.weight(1f))
                         Text(routeDuration, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                     }
@@ -886,16 +944,25 @@ fun RouteDropScreen(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
                                 Text(
                                     "Delivery [${delivery.deliveryId}]",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp
+                                    fontSize = 16.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
-                                Spacer(modifier = Modifier.weight(1f))
-                                Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                StatusBadge(status = delivery.status)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    StatusBadge(status = delivery.status)
+                                }
                             }
                             
                             OrderTrackerBar(status = delivery.status)
@@ -909,15 +976,32 @@ fun RouteDropScreen(
                             if (delivery.isCourierLocationAvailable && delivery.status != "Delivered") {
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text("ETA: ${delivery.eta}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Button(
-                                    onClick = { deliveryToTrack = delivery },
-                                    modifier = Modifier.fillMaxWidth()
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (delivery.isCourierLocationAvailable && delivery.status != "Delivered") {
+                                    Button(
+                                        onClick = { deliveryToTrack = delivery },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Map, contentDescription = null)
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Live Map", fontSize = 12.sp)
+                                    }
+                                }
+
+                                OutlinedButton(
+                                    onClick = { deliveryToDelete = delivery },
+                                    modifier = if (delivery.isCourierLocationAvailable && delivery.status != "Delivered") Modifier.weight(1f) else Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                                 ) {
-                                    Icon(Icons.Default.Map, contentDescription = null)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("Live Map Tracking")
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Modify / Delete Request", fontSize = 12.sp)
                                 }
                             }
                         }
@@ -938,13 +1022,20 @@ fun RouteDropScreen(
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
                                     Text(
                                         "Delivery [${delivery.deliveryId}]",
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 18.sp
+                                        fontSize = 16.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f, fill = false)
                                     )
-                                    Spacer(modifier = Modifier.weight(1f))
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     StatusBadge(status = delivery.status)
                                 }
                                 
@@ -978,8 +1069,14 @@ fun RouteDropScreen(
             } // Close Recipient flow block
         } // Close Column
         } // Close HOME tab
-        BottomTab.RATES -> {
-            ShippingRatesScreen(paddingValues = paddingValues)
+        BottomTab.TRACK -> {
+            TrackScreen(
+                paddingValues = paddingValues,
+                loggedInUser = loggedInUser,
+                globalDeliveries = globalDeliveries,
+                onTrackDelivery = { delivery -> deliveryToTrack = delivery },
+                onDeleteDelivery = { delivery -> deliveryToDelete = delivery }
+            )
         }
         BottomTab.NEARBY -> {
             Box(modifier = Modifier.padding(paddingValues).fillMaxSize()) {
@@ -1022,6 +1119,76 @@ fun RouteDropScreen(
                 }
             )
         }
+    }
+
+    // Delete / Modify Delivery Request Dialog for Customer
+    deliveryToDelete?.let { targetDelivery ->
+        AlertDialog(
+            onDismissRequest = { deliveryToDelete = null },
+            title = {
+                Text("Delete Delivery Request", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Text(
+                    "What would you like to do with request [${targetDelivery.deliveryId}]?\n\n" +
+                    "• Delete & Edit: Remove this request and load its details into the creation form so you can make changes.\n" +
+                    "• Delete Request: Permanently remove this delivery request."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        // Load details back into form for editing
+                        pickupName = targetDelivery.pickup.locationName
+                        pickupLat = targetDelivery.pickup.latitude
+                        pickupLng = targetDelivery.pickup.longitude
+
+                        dropOffName = targetDelivery.dropOff.locationName
+                        dropOffLat = targetDelivery.dropOff.latitude
+                        dropOffLng = targetDelivery.dropOff.longitude
+
+                        pkgDesc = targetDelivery.details.packageDescription
+                        pkgInstructions = targetDelivery.details.instructions
+                        reqVehicle = targetDelivery.requestedVehicle
+                        recipientPhoneInput = targetDelivery.recipientPhone
+
+                        // Delete existing delivery from Firestore & ViewModel
+                        viewModel.deleteDelivery(targetDelivery.deliveryId)
+                        deliveryToDelete = null
+
+                        // Navigate back to HOME tab so customer can edit form
+                        currentTab = BottomTab.HOME
+
+                        Toast.makeText(context, "Request deleted. Details loaded into form for editing.", Toast.LENGTH_LONG).show()
+                    }
+                ) {
+                    Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Delete & Edit")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        onClick = { deliveryToDelete = null }
+                    ) {
+                        Text("Cancel")
+                    }
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.deleteDelivery(targetDelivery.deliveryId)
+                            deliveryToDelete = null
+                            Toast.makeText(context, "Delivery request [${targetDelivery.deliveryId}] deleted.", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Delete Only")
+                    }
+                }
+            }
+        )
     }
 }
 
@@ -1203,7 +1370,10 @@ fun OrderTrackerBar(status: String) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = label,
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = TextOverflow.Ellipsis,
                     color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Gray,
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -1224,12 +1394,19 @@ fun StatusBadge(status: String) {
         else -> MaterialTheme.colorScheme.secondary
     }
 
-    Box(
-        modifier = Modifier
-            .background(bgColor, shape = RoundedCornerShape(12.dp))
-            .padding(horizontal = 10.dp, vertical = 4.dp)
+    Surface(
+        color = bgColor,
+        shape = RoundedCornerShape(12.dp)
     ) {
-        Text(status, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text(
+            text = status,
+            color = Color.White,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+        )
     }
 }
 
@@ -1286,9 +1463,23 @@ fun CourierMapDialog(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
                             MapView(ctx).apply {
-                                setTileSource(TileSourceFactory.MAPNIK)
+                                setTileSource(com.example.myapplication.map.MapStyles.GOOGLE_MAPS)
                                 setMultiTouchControls(true)
                                 controller.setZoom(16.0)
+                                setOnTouchListener { v, event ->
+                                    when (event.action) {
+                                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                                        }
+                                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                                        }
+                                    }
+                                    if (event.action == MotionEvent.ACTION_UP) {
+                                        v.performClick()
+                                    }
+                                    false
+                                }
                                 
                                 val courierGeoPoint = GeoPoint(delivery.courierLat, delivery.courierLng)
                                 controller.setCenter(courierGeoPoint)
@@ -1536,7 +1727,7 @@ fun CourierDashboardPreview() {
     MaterialTheme {
         RouteDropScreen(
             loggedInUser = mockCourier,
-            viewModel = AppViewModel(), // Mock viewmodel for preview
+            viewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
             onLogout = {}
         )
     }
@@ -1642,6 +1833,188 @@ fun ChatDialog(
                         }
                     ) {
                         Text("Send")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TrackScreen(
+    paddingValues: PaddingValues,
+    loggedInUser: User,
+    globalDeliveries: List<Delivery>,
+    onTrackDelivery: (Delivery) -> Unit,
+    onDeleteDelivery: ((Delivery) -> Unit)? = null
+) {
+    var searchQuery by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(paddingValues)
+            .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        // Search Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text(
+                    "Parcel Tracking",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Enter your Delivery ID to track package status in real time",
+                    fontSize = 13.sp,
+                    color = Color.Gray
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search by Delivery ID or description") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            }
+        }
+
+        // Filter deliveries based on logged in user and search query
+        val relevantDeliveries = globalDeliveries.filter { delivery ->
+            val matchesUser = when (loggedInUser) {
+                is Customer -> delivery.customer.userId == loggedInUser.userId
+                is Courier -> delivery.courier?.userId == loggedInUser.userId
+                is Recipient -> delivery.recipientPhone == loggedInUser.phoneNumber
+                else -> false
+            }
+            val matchesQuery = searchQuery.isBlank() ||
+                    delivery.deliveryId.contains(searchQuery, ignoreCase = true) ||
+                    delivery.details.packageDescription.contains(searchQuery, ignoreCase = true) ||
+                    delivery.customer.name.contains(searchQuery, ignoreCase = true) ||
+                    (delivery.courier?.name?.contains(searchQuery, ignoreCase = true) == true)
+            
+            (matchesUser || searchQuery.isNotBlank()) && matchesQuery
+        }
+
+        if (relevantDeliveries.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(32.dp).fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        Icons.Default.LocalShipping,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = Color.Gray
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        if (searchQuery.isBlank()) "No active packages to track" else "No matching package found",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Create a delivery request on the Home tab to track your orders here.",
+                        fontSize = 13.sp,
+                        color = Color.Gray,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
+            }
+        } else {
+            Text(
+                "Active Deliveries (${relevantDeliveries.size})",
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+
+            relevantDeliveries.forEach { delivery ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Delivery [${delivery.deliveryId}]",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            StatusBadge(status = delivery.status)
+                        }
+
+                        OrderTrackerBar(status = delivery.status)
+
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("Package: ${delivery.details.packageDescription}", fontWeight = FontWeight.Medium)
+                        Text("Courier: ${delivery.courier?.name ?: "Searching for courier..."}")
+                        Text("Pickup: ${delivery.pickup.getAddress()}")
+                        Text("Drop-off: ${delivery.dropOff.getAddress()}")
+
+                        if (delivery.isCourierLocationAvailable && delivery.status != "Delivered") {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("ETA: ${delivery.eta}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        }
+
+                        val isCustomerOwner = loggedInUser is Customer && delivery.customer.userId == loggedInUser.userId
+
+                        if ((delivery.isCourierLocationAvailable && delivery.status != "Delivered") || (isCustomerOwner && onDeleteDelivery != null)) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                if (delivery.isCourierLocationAvailable && delivery.status != "Delivered") {
+                                    Button(
+                                        onClick = { onTrackDelivery(delivery) },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.Default.Map, contentDescription = null)
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Live Map", fontSize = 12.sp)
+                                    }
+                                }
+
+                                if (isCustomerOwner && onDeleteDelivery != null) {
+                                    OutlinedButton(
+                                        onClick = { onDeleteDelivery(delivery) },
+                                        modifier = if (delivery.isCourierLocationAvailable && delivery.status != "Delivered") Modifier.weight(1f) else Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Modify / Delete Request", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

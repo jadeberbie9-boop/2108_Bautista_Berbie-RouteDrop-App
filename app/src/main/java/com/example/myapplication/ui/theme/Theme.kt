@@ -1,6 +1,5 @@
 package com.example.myapplication.ui.theme
 
-import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
@@ -13,55 +12,54 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme = darkColorScheme(
-    primary = DeliveryBlue,
-    onPrimary = Color.White,
-    primaryContainer = DeliveryBlueDark,
+    primary = Color(0xFF38BDF8),
+    onPrimary = Color(0xFF0F172A),
+    primaryContainer = NavyDarkContainer,
     onPrimaryContainer = Color.White,
     
-    secondary = AccentOrange,
+    secondary = NavyAccent,
     onSecondary = Color.White,
-    secondaryContainer = SurfaceVariantDark,
+    secondaryContainer = NavySurfaceVariantDark,
     onSecondaryContainer = TextPrimaryDark,
     
-    background = BgDark,
+    background = NavyBgDark,
     onBackground = TextPrimaryDark,
     
-    surface = SurfaceDark,
+    surface = NavySurfaceDark,
     onSurface = TextPrimaryDark,
     
-    surfaceVariant = SurfaceVariantDark,
+    surfaceVariant = NavySurfaceVariantDark,
     onSurfaceVariant = TextSecondaryDark,
     
-    error = Color(0xFFFF453A)
+    error = Color(0xFFEF4444)
 )
 
 private val LightColorScheme = lightColorScheme(
-    primary = DeliveryBlue,
+    primary = NavyPrimary,
     onPrimary = Color.White,
-    primaryContainer = DeliveryBlueLight,
-    onPrimaryContainer = DeliveryBlueDark,
+    primaryContainer = NavyLightContainer,
+    onPrimaryContainer = NavyPrimary,
     
-    secondary = AccentOrange,
+    secondary = NavyAccent,
     onSecondary = Color.White,
-    secondaryContainer = SurfaceVariantLight,
+    secondaryContainer = NavySurfaceVariantLight,
     onSecondaryContainer = TextPrimaryLight,
     
-    background = BgLight,
+    background = NavyBgLight,
     onBackground = TextPrimaryLight,
     
-    surface = SurfaceLight,
+    surface = NavySurfaceLight,
     onSurface = TextPrimaryLight,
     
-    surfaceVariant = SurfaceVariantLight,
+    surfaceVariant = NavySurfaceVariantLight,
     onSurfaceVariant = TextSecondaryLight,
     
-    error = Color(0xFFFF3B30)
+    error = Color(0xFFDC2626)
 )
 
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    // Set dynamic color to false so our Sand & Black theme is always applied
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {

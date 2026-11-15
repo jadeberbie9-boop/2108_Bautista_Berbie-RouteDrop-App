@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.myapplication.routedrop.Courier
 import com.example.myapplication.routedrop.Customer
-import com.example.myapplication.routedrop.Recipient
 import com.example.myapplication.routedrop.User
 import java.util.UUID
 
@@ -163,7 +162,7 @@ fun SignUpScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Role: ", fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(
@@ -173,7 +172,7 @@ fun SignUpScreen(
                     Text("Customer")
                 }
 
-                Spacer(modifier = Modifier.width(4.dp))
+                Spacer(modifier = Modifier.width(16.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     RadioButton(
@@ -181,16 +180,6 @@ fun SignUpScreen(
                         onClick = { selectedRole = "COURIER" }
                     )
                     Text("Courier")
-                }
-
-                Spacer(modifier = Modifier.width(4.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(
-                        selected = selectedRole == "RECIPIENT",
-                        onClick = { selectedRole = "RECIPIENT" }
-                    )
-                    Text("Recipient")
                 }
             }
             
@@ -319,16 +308,7 @@ fun SignUpScreen(
                         return@Button
                     }
 
-                    val newUser: User = if (selectedRole == "CUSTOMER") {
-                        Customer(
-                            userId = "C-${UUID.randomUUID().toString().take(6)}",
-                            name = name,
-                            phoneNumber = phoneNumber,
-                            emailAddress = emailAddress.ifBlank { "N/A" },
-                            address = address,
-                            password = password
-                        )
-                    } else if (selectedRole == "COURIER") {
+                    val newUser: User = if (selectedRole == "COURIER") {
                         Courier(
                             userId = "CR-${UUID.randomUUID().toString().take(6)}",
                             name = name,
@@ -339,8 +319,8 @@ fun SignUpScreen(
                             vehicleType = selectedVehicle
                         )
                     } else {
-                        Recipient(
-                            userId = "R-${UUID.randomUUID().toString().take(6)}",
+                        Customer(
+                            userId = "C-${UUID.randomUUID().toString().take(6)}",
                             name = name,
                             phoneNumber = phoneNumber,
                             emailAddress = emailAddress.ifBlank { "N/A" },

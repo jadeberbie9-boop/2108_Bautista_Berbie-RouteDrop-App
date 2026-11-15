@@ -53,6 +53,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import com.example.myapplication.routedrop.LocationHelper
 
+import android.view.MotionEvent
 import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
@@ -214,11 +215,23 @@ fun MapLocationPickerDialog(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
                             MapView(ctx).apply {
-                                setTileSource(TileSourceFactory.MAPNIK)
+                                setTileSource(com.example.myapplication.map.MapStyles.GOOGLE_MAPS)
                                 setMultiTouchControls(true)
                                 controller.setZoom(15.0)
                                 val initialGeo = GeoPoint(initialLat, initialLng)
                                 controller.setCenter(initialGeo)
+
+                                setOnTouchListener { v, event ->
+                                    when (event.action) {
+                                        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                                            v.parent?.requestDisallowInterceptTouchEvent(true)
+                                        }
+                                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                            v.parent?.requestDisallowInterceptTouchEvent(false)
+                                        }
+                                    }
+                                    false
+                                }
 
                                 val marker = Marker(this).apply {
                                     position = initialGeo
@@ -244,9 +257,8 @@ fun MapLocationPickerDialog(
                                 mapViewRef = this
                             }
                         },
-                        update = { mapView ->
+                        update = { _ ->
                             // Do nothing on regular updates so the map doesn't snap back when panning
-                            mapViewRef = mapView
                         }
                     )
 

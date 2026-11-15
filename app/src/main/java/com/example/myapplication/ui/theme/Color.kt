@@ -2,27 +2,30 @@ package com.example.myapplication.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// Primary Brand Colors (Vibrant Delivery Theme)
-val DeliveryBlue = Color(0xFF007AFF) // Electric Blue for high contrast, trustworthy brand feel
-val DeliveryBlueLight = Color(0xFFE5F1FF) // Very light blue for backgrounds/containers
-val DeliveryBlueDark = Color(0xFF0056B3)
+// Navy Blue Brand Palette
+val NavyPrimary = Color(0xFF0F172A)       // Deep Slate Navy Blue
+val NavySecondary = Color(0xFF1E293B)     // Medium Slate Navy
+val NavyLightContainer = Color(0xFFE2E8F0) // Cool Light Slate Navy tint
+val NavyDarkContainer = Color(0xFF1E3A8A)  // Rich Deep Navy Container
+val NavyAccent = Color(0xFF2563EB)         // Vibrant Royal Blue Accent
+val NavyCyan = Color(0xFF0284C7)           // Cyan Navy Accent for highlights
 
-// Secondary Colors
-val AccentOrange = Color(0xFFFF9500) // Energetic Orange for active delivery tags/statuses
-val AccentGreen = Color(0xFF34C759) // Success Green for Delivered states
+// Status Colors
+val AccentOrange = Color(0xFFEA580C)       // Active Delivery Orange
+val AccentGreen = Color(0xFF16A34A)        // Success Green
 
-// Neutral/Backgrounds (Clean and crisp)
-val BgLight = Color(0xFFF8F9FA)
-val SurfaceLight = Color(0xFFFFFFFF)
-val SurfaceVariantLight = Color(0xFFF2F2F7)
+// Light Theme Neutrals
+val NavyBgLight = Color(0xFFF8FAFC)        // Cool Slate background
+val NavySurfaceLight = Color(0xFFFFFFFF)   // Clean White Surface
+val NavySurfaceVariantLight = Color(0xFFEDF2F7)
 
 // Dark Theme Neutrals
-val BgDark = Color(0xFF121212)
-val SurfaceDark = Color(0xFF1E1E1E)
-val SurfaceVariantDark = Color(0xFF2C2C2E)
+val NavyBgDark = Color(0xFF090D16)         // Midnight Navy background
+val NavySurfaceDark = Color(0xFF0F172A)    // Deep Navy Surface
+val NavySurfaceVariantDark = Color(0xFF1E293B)
 
 // Text Colors
-val TextPrimaryLight = Color(0xFF1C1C1E)
-val TextSecondaryLight = Color(0xFF636366)
-val TextPrimaryDark = Color(0xFFE5E5EA)
-val TextSecondaryDark = Color(0xFFAEAEB2)
+val TextPrimaryLight = Color(0xFF0F172A)   // Deep Navy Text
+val TextSecondaryLight = Color(0xFF475569) // Muted Slate Text
+val TextPrimaryDark = Color(0xFFF8FAFC)    // Crisp White-Slate Text
+val TextSecondaryDark = Color(0xFF94A3B8)  // Light Muted Slate Text

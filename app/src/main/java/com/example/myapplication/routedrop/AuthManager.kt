@@ -184,7 +184,12 @@ class AuthManager(context: Context? = null) {
             }
             .addOnFailureListener { e ->
                 Log.e("AuthManager", "Firebase sign in failed", e)
-                onError(e.localizedMessage ?: "Invalid credentials or sign in failed")
+                val cleanError = if (e.localizedMessage?.contains("incorrect, malformed or has expired", ignoreCase = true) == true) {
+                    "Incorrect password."
+                } else {
+                    e.localizedMessage ?: "Invalid credentials or sign in failed"
+                }
+                onError(cleanError)
             }
     }
 

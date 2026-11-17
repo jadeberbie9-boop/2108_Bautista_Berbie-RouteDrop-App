@@ -546,36 +546,49 @@ fun RouteDropScreen(
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Button(
-                                    onClick = {
-                                        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                                        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                                        if (fine || coarse) {
-                                            isGeotagging = true
-                                            locationHelper.fetchCurrentLocation(
-                                                onResult = { lat, lng, _ ->
-                                                    isGeotagging = false
-                                                    delivery.updateCourierLocation(lat, lng)
-                                                    viewModel.updateDelivery(delivery)
-                                                    Toast.makeText(context, "Location shared to customer!", Toast.LENGTH_SHORT).show()
-                                                },
-                                                onError = { err ->
-                                                    isGeotagging = false
-                                                    Toast.makeText(context, "Error: $err", Toast.LENGTH_SHORT).show()
-                                                }
-                                            )
-                                        } else {
-                                            requestShareLocation(delivery)
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    if (isGeotagging) {
-                                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
-                                    } else {
-                                        Icon(Icons.Default.Place, contentDescription = null)
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("Share Single Location Update")
+                                    Button(
+                                        onClick = { deliveryForChat = delivery },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Chat", fontSize = 12.sp)
+                                    }
+                                    Button(
+                                        onClick = {
+                                            val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                            val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                            if (fine || coarse) {
+                                                isGeotagging = true
+                                                locationHelper.fetchCurrentLocation(
+                                                    onResult = { lat, lng, _ ->
+                                                        isGeotagging = false
+                                                        delivery.updateCourierLocation(lat, lng)
+                                                        viewModel.updateDelivery(delivery)
+                                                        Toast.makeText(context, "Location shared to customer!", Toast.LENGTH_SHORT).show()
+                                                    },
+                                                    onError = { err ->
+                                                        isGeotagging = false
+                                                        Toast.makeText(context, "Error: $err", Toast.LENGTH_SHORT).show()
+                                                    }
+                                                )
+                                            } else {
+                                                requestShareLocation(delivery)
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        if (isGeotagging) {
+                                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary)
+                                        } else {
+                                            Icon(Icons.Default.Place, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Share Loc", fontSize = 12.sp)
+                                        }
                                     }
                                 }
                             }
@@ -1071,14 +1084,16 @@ fun RouteDropScreen(
                                     }
                                 }
 
-                                OutlinedButton(
-                                    onClick = { deliveryToDelete = delivery },
-                                    modifier = Modifier.weight(1f),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
-                                ) {
-                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Modify / Delete", fontSize = 12.sp)
+                                if (delivery.status == "Pending") {
+                                    OutlinedButton(
+                                        onClick = { deliveryToDelete = delivery },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Modify / Delete", fontSize = 12.sp)
+                                    }
                                 }
                             }
                         }
@@ -2243,7 +2258,7 @@ fun TrackScreen(
                                     }
                                 }
 
-                                if (isCustomerOwner && onDeleteDelivery != null) {
+                                if (isCustomerOwner && onDeleteDelivery != null && delivery.status == "Pending") {
                                     OutlinedButton(
                                         onClick = { onDeleteDelivery(delivery) },
                                         modifier = Modifier.weight(1f),

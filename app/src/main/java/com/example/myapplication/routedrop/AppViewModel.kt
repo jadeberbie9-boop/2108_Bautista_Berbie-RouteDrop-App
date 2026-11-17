@@ -56,7 +56,6 @@ class AppViewModel : ViewModel() {
                             existing.isRated = remote.isRated
                             existing.rating = remote.rating
                             existing.reviewComment = remote.reviewComment
-                            existing.tipAmount = remote.tipAmount
                         } else {
                             globalDeliveries.add(remote)
                         }
@@ -92,6 +91,56 @@ class AppViewModel : ViewModel() {
             .addOnFailureListener { e -> Log.e("AppViewModel", "Error deleting delivery $deliveryId", e) }
     }
 
+    fun listenToChatMessages(
+        deliveryId: String,
+        onMessagesUpdated: (List<ChatMessage>) -> Unit
+    ): ListenerRegistration {
+        return db.collection("deliveries")
+            .document(deliveryId)
+            .collection("messages")
+            .orderBy("timestamp", com.google.firebase.firestore.Query.Direction.ASCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("AppViewModel", "Chat listen failed.", error)
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null) {
+                    val messages = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            val data = doc.data ?: return@mapNotNull null
+                            ChatMessage(
+                                messageId = doc.id,
+                                senderId = (data["senderId"] as? String) ?: "",
+                                senderName = (data["senderName"] as? String) ?: "",
+                                text = (data["text"] as? String) ?: "",
+                                timestamp = (data["timestamp"] as? Number)?.toLong() ?: 0L
+                            )
+                        } catch (e: Exception) {
+                            Log.e("AppViewModel", "Error parsing chat message ${doc.id}", e)
+                            null
+                        }
+                    }
+                    onMessagesUpdated(messages)
+                }
+            }
+    }
+
+    fun sendChatMessage(deliveryId: String, message: ChatMessage) {
+        val msgMap = mapOf(
+            "senderId" to message.senderId,
+            "senderName" to message.senderName,
+            "text" to message.text,
+            "timestamp" to message.timestamp
+        )
+        db.collection("deliveries")
+            .document(deliveryId)
+            .collection("messages")
+            .add(msgMap)
+            .addOnSuccessListener { Log.d("AppViewModel", "Chat message sent") }
+            .addOnFailureListener { e -> Log.e("AppViewModel", "Error sending chat message", e) }
+    }
+
     override fun onCleared() {
         super.onCleared()
         deliveriesListener?.remove()
@@ -111,8 +160,7 @@ class AppViewModel : ViewModel() {
             "eta" to delivery.eta,
             "isRated" to delivery.isRated,
             "rating" to delivery.rating,
-            "reviewComment" to delivery.reviewComment,
-            "tipAmount" to delivery.tipAmount
+            "reviewComment" to delivery.reviewComment
         )
 
         // Customer mapping
@@ -233,7 +281,6 @@ class AppViewModel : ViewModel() {
         delivery.isRated = (data["isRated"] as? Boolean) ?: false
         delivery.rating = (data["rating"] as? Number)?.toInt() ?: 0
         delivery.reviewComment = (data["reviewComment"] as? String) ?: ""
-        delivery.tipAmount = (data["tipAmount"] as? Number)?.toDouble() ?: 0.0
 
         return delivery
     }

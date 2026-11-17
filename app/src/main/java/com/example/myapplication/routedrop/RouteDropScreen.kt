@@ -40,6 +40,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.layout.Spacer
@@ -124,6 +126,7 @@ fun RouteDropScreen(
 
     // State for Courier tracking Map
     var deliveryToTrack by remember { mutableStateOf<Delivery?>(null) }
+    var deliveryForChat by remember { mutableStateOf<Delivery?>(null) }
 
     // State for Deleting / Modifying Customer Request
     var deliveryToDelete by remember { mutableStateOf<Delivery?>(null) }
@@ -142,8 +145,9 @@ fun RouteDropScreen(
     var recipientPhoneInput by remember { mutableStateOf("") }
 
     var isGeotagging by remember { mutableStateOf(false) }
-    var activeGeotagTarget by remember { mutableStateOf<String?>(null) } // "PICKUP" or "DROPOFF"
+    var activeGeotagTarget by remember { mutableStateOf<String?>(null) } // "PICKUP", "DROPOFF", "SHARE_LOCATION", or "LIVE_TRACKING"
     var mapPickerTarget by remember { mutableStateOf<String?>(null) } // "PICKUP" or "DROPOFF"
+    var activeShareDelivery by remember { mutableStateOf<Delivery?>(null) }
     
     // Live tracking for Courier
     var isLiveTracking by remember { mutableStateOf(false) }
@@ -210,7 +214,26 @@ fun RouteDropScreen(
 
         if (fineGranted || coarseGranted) {
             val target = activeGeotagTarget
-            if (target != null) {
+            if (target == "SHARE_LOCATION") {
+                val delivery = activeShareDelivery
+                if (delivery != null) {
+                    isGeotagging = true
+                    locationHelper.fetchCurrentLocation(
+                        onResult = { lat, lng, _ ->
+                            isGeotagging = false
+                            delivery.updateCourierLocation(lat, lng)
+                            viewModel.updateDelivery(delivery)
+                            Toast.makeText(context, "Location shared to customer!", Toast.LENGTH_SHORT).show()
+                        },
+                        onError = { err ->
+                            isGeotagging = false
+                            Toast.makeText(context, "Error: $err", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
+            } else if (target == "LIVE_TRACKING") {
+                isLiveTracking = true
+            } else if (target != null) {
                 isGeotagging = true
                 locationHelper.fetchCurrentLocation(
                     onResult = { lat, lng, addr ->
@@ -233,12 +256,33 @@ fun RouteDropScreen(
                 )
             }
         } else {
-            Toast.makeText(context, "Location permission is required for geotagging.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Location permission is required.", Toast.LENGTH_SHORT).show()
         }
     }
 
     fun requestGeotag(target: String) {
         activeGeotagTarget = target
+        permissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        )
+    }
+
+    fun requestShareLocation(delivery: Delivery) {
+        activeGeotagTarget = "SHARE_LOCATION"
+        activeShareDelivery = delivery
+        permissionLauncher.launch(
+            arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+        )
+    }
+
+    fun requestLiveTrackingPermission() {
+        activeGeotagTarget = "LIVE_TRACKING"
         permissionLauncher.launch(
             arrayOf(
                 Manifest.permission.ACCESS_FINE_LOCATION,
@@ -355,7 +399,6 @@ fun RouteDropScreen(
                 // Earnings Dashboard
                 val completedDeliveries = globalDeliveries.filter { it.courier?.userId == loggedInUser.userId && it.status == "Delivered" }
                 val totalEarnings = completedDeliveries.sumOf { it.fare }
-                val totalTips = completedDeliveries.sumOf { it.tipAmount }
 
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -373,17 +416,8 @@ fun RouteDropScreen(
                             Text("${completedDeliveries.size}")
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Fares Earned:", fontWeight = FontWeight.Bold)
-                            Text("₱${"%.2f".format(totalEarnings)}")
-                        }
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Tips Earned:", fontWeight = FontWeight.Bold)
-                            Text("₱${"%.2f".format(totalTips)}")
-                        }
-                        Divider(modifier = Modifier.padding(vertical = 8.dp))
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text("Total Earnings:", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                            Text("₱${"%.2f".format(totalEarnings + totalTips)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                            Text("₱${"%.2f".format(totalEarnings)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -416,7 +450,19 @@ fun RouteDropScreen(
                                 }
                         Spacer(modifier = Modifier.weight(1f))
                         Button(
-                            onClick = { isLiveTracking = !isLiveTracking },
+                            onClick = {
+                                if (!isLiveTracking) {
+                                    val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                    val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                    if (fine || coarse) {
+                                        isLiveTracking = true
+                                    } else {
+                                        requestLiveTrackingPermission()
+                                    }
+                                } else {
+                                    isLiveTracking = false
+                                }
+                            },
                             colors = androidx.compose.material3.ButtonDefaults.buttonColors(
                                 containerColor = if (isLiveTracking) Color.Red else MaterialTheme.colorScheme.primary
                             )
@@ -447,19 +493,21 @@ fun RouteDropScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        "Request from: ${delivery.customer.name}",
+                                        "Tracking ID: ${delivery.deliveryId}",
                                         fontWeight = FontWeight.Bold,
+                                        fontSize = 15.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false)
+                                        modifier = Modifier.weight(1f)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                                        Spacer(modifier = Modifier.width(8.dp))
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.height(4.dp))
                                         StatusBadge(status = delivery.status)
                                     }
                                 }
+                                Text("Customer: ${delivery.customer.name}")
                                 Text("Pickup: ${delivery.pickup.locationName}")
                                 Text("Drop-off: ${delivery.dropOff.locationName}")
                                 Text("Status: ${delivery.status}", color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
@@ -500,19 +548,25 @@ fun RouteDropScreen(
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Button(
                                     onClick = {
-                                        isGeotagging = true
-                                        locationHelper.fetchCurrentLocation(
-                                            onResult = { lat, lng, _ ->
-                                                isGeotagging = false
-                                                delivery.updateCourierLocation(lat, lng)
-                                                viewModel.updateDelivery(delivery)
-                                                Toast.makeText(context, "Location shared to customer!", Toast.LENGTH_SHORT).show()
-                                            },
-                                            onError = { err ->
-                                                isGeotagging = false
-                                                Toast.makeText(context, "Error: $err", Toast.LENGTH_SHORT).show()
-                                            }
-                                        )
+                                        val fine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                        val coarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                                        if (fine || coarse) {
+                                            isGeotagging = true
+                                            locationHelper.fetchCurrentLocation(
+                                                onResult = { lat, lng, _ ->
+                                                    isGeotagging = false
+                                                    delivery.updateCourierLocation(lat, lng)
+                                                    viewModel.updateDelivery(delivery)
+                                                    Toast.makeText(context, "Location shared to customer!", Toast.LENGTH_SHORT).show()
+                                                },
+                                                onError = { err ->
+                                                    isGeotagging = false
+                                                    Toast.makeText(context, "Error: $err", Toast.LENGTH_SHORT).show()
+                                                }
+                                            )
+                                        } else {
+                                            requestShareLocation(delivery)
+                                        }
                                     },
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
@@ -546,11 +600,23 @@ fun RouteDropScreen(
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                             ) {
                                 Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("Customer: ${delivery.customer.name}", fontWeight = FontWeight.Bold)
-                                        Spacer(modifier = Modifier.weight(1f))
-                                        Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            "Tracking ID: ${delivery.deliveryId}",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                                     }
+                                    Text("Customer: ${delivery.customer.name}")
                                     Text("Pickup: ${delivery.pickup.locationName}")
                                     Text("Drop-off: ${delivery.dropOff.locationName}")
                                     Text("Package: ${delivery.details.packageDescription} (${delivery.requestedVehicle})", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
@@ -879,7 +945,7 @@ fun RouteDropScreen(
                     val pLoc = PickupLoc("P-$ts", pickupName, pickupLat, pickupLng, loggedInUser.name)
                     val dLoc = DropOffLoc("D-$ts", dropOffName, dropOffLat, dropOffLng, loggedInUser.name)
                     val details = DeliveryDetails(pkgDesc, pkgInstructions)
-                    val deliveryId = "DEL-${System.currentTimeMillis()}"
+                    val deliveryId = "DEL-${System.currentTimeMillis().toString().takeLast(6)}"
                     val delivery = Delivery(
                         deliveryId = deliveryId,
                         customer = loggedInUser,
@@ -912,7 +978,7 @@ fun RouteDropScreen(
             Text("Your Active Deliveries", fontWeight = FontWeight.Bold, fontSize = 18.sp)
 
             // Multiple active deliveries for Customer
-            val myDeliveries = globalDeliveries.filter { it.customer.userId == loggedInUser.userId }
+            val myDeliveries = globalDeliveries.filter { it.customer.userId == loggedInUser.userId && it.status != "Delivered" }
             if (myDeliveries.isEmpty()) {
                 Column(
                     modifier = Modifier.fillMaxWidth().padding(32.dp),
@@ -950,17 +1016,17 @@ fun RouteDropScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text(
-                                    "Delivery [${delivery.deliveryId}]",
+                                    "Tracking ID: ${delivery.deliveryId}",
                                     fontWeight = FontWeight.Bold,
-                                    fontSize = 16.sp,
+                                    fontSize = 15.sp,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
+                                    modifier = Modifier.weight(1f)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(horizontalAlignment = Alignment.End) {
                                     Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
-                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Spacer(modifier = Modifier.height(4.dp))
                                     StatusBadge(status = delivery.status)
                                 }
                             }
@@ -994,14 +1060,25 @@ fun RouteDropScreen(
                                     }
                                 }
 
+                                if (delivery.courier != null && delivery.status != "Delivered") {
+                                    Button(
+                                        onClick = { deliveryForChat = delivery },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Chat", fontSize = 12.sp)
+                                    }
+                                }
+
                                 OutlinedButton(
                                     onClick = { deliveryToDelete = delivery },
-                                    modifier = if (delivery.isCourierLocationAvailable && delivery.status != "Delivered") Modifier.weight(1f) else Modifier.fillMaxWidth(),
+                                    modifier = Modifier.weight(1f),
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                                 ) {
                                     Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(Modifier.width(4.dp))
-                                    Text("Modify / Delete Request", fontSize = 12.sp)
+                                    Text("Modify / Delete", fontSize = 12.sp)
                                 }
                             }
                         }
@@ -1012,7 +1089,7 @@ fun RouteDropScreen(
                 // Recipient Dashboard
                 Text("Your Incoming Deliveries", fontWeight = FontWeight.Bold, fontSize = 18.sp)
 
-                val myIncomingDeliveries = globalDeliveries.filter { it.recipientPhone == loggedInUser.phoneNumber }
+                val myIncomingDeliveries = globalDeliveries.filter { it.recipientPhone == loggedInUser.phoneNumber && it.status != "Delivered" }
                 if (myIncomingDeliveries.isEmpty()) {
                     Text("No incoming deliveries right now.", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
                 } else {
@@ -1028,15 +1105,19 @@ fun RouteDropScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween
                                 ) {
                                     Text(
-                                        "Delivery [${delivery.deliveryId}]",
+                                        "Tracking ID: ${delivery.deliveryId}",
                                         fontWeight = FontWeight.Bold,
-                                        fontSize = 16.sp,
+                                        fontSize = 15.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.weight(1f, fill = false)
+                                        modifier = Modifier.weight(1f)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    StatusBadge(status = delivery.status)
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        StatusBadge(status = delivery.status)
+                                    }
                                 }
                                 
                                 OrderTrackerBar(status = delivery.status)
@@ -1053,13 +1134,27 @@ fun RouteDropScreen(
                                     Text("ETA: ${delivery.eta}", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                                     
                                     Spacer(modifier = Modifier.height(12.dp))
-                                    Button(
-                                        onClick = { deliveryToTrack = delivery },
-                                        modifier = Modifier.fillMaxWidth()
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Icon(Icons.Default.Map, contentDescription = null)
-                                        Spacer(Modifier.width(8.dp))
-                                        Text("Live Map Tracking")
+                                        Button(
+                                            onClick = { deliveryToTrack = delivery },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(Icons.Default.Map, contentDescription = null)
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Live Map", fontSize = 12.sp)
+                                        }
+
+                                        Button(
+                                            onClick = { deliveryForChat = delivery },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("Chat", fontSize = 12.sp)
+                                        }
                                     }
                                 }
                             }
@@ -1075,6 +1170,7 @@ fun RouteDropScreen(
                 loggedInUser = loggedInUser,
                 globalDeliveries = globalDeliveries,
                 onTrackDelivery = { delivery -> deliveryToTrack = delivery },
+                onChatDelivery = { delivery -> deliveryForChat = delivery },
                 onDeleteDelivery = { delivery -> deliveryToDelete = delivery }
             )
         }
@@ -1093,7 +1189,18 @@ fun RouteDropScreen(
     deliveryToTrack?.let { delivery ->
         CourierMapDialog(
             delivery = delivery,
+            loggedInUser = loggedInUser,
+            viewModel = viewModel,
             onDismissRequest = { deliveryToTrack = null }
+        )
+    }
+
+    deliveryForChat?.let { delivery ->
+        ChatDialog(
+            delivery = delivery,
+            loggedInUser = loggedInUser,
+            viewModel = viewModel,
+            onDismiss = { deliveryForChat = null }
         )
     }
 
@@ -1105,9 +1212,8 @@ fun RouteDropScreen(
         unratedDelivery?.let { delivery ->
             RatingReviewDialog(
                 delivery = delivery,
-                onSubmit = { rating, tip, comment ->
+                onSubmit = { rating, comment ->
                     delivery.rating = rating
-                    delivery.tipAmount = tip
                     delivery.reviewComment = comment
                     delivery.isRated = true
                     viewModel.updateDelivery(delivery)
@@ -1250,7 +1356,7 @@ fun ProfileScreen(loggedInUser: User, globalDeliveries: List<Delivery>, paddingV
         Text("Delivery History", fontSize = 20.sp, fontWeight = FontWeight.Bold)
         
         val pastDeliveries = globalDeliveries.filter { 
-            (it.customer.userId == loggedInUser.userId || it.courier?.userId == loggedInUser.userId) && it.status == "Delivered"
+            (it.customer.userId == loggedInUser.userId || it.courier?.userId == loggedInUser.userId || (loggedInUser is Recipient && it.recipientPhone == loggedInUser.phoneNumber)) && it.status == "Delivered"
         }
         
         if (pastDeliveries.isEmpty()) {
@@ -1284,12 +1390,29 @@ fun ProfileScreen(loggedInUser: User, globalDeliveries: List<Delivery>, paddingV
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Delivery [${delivery.deliveryId}]", fontWeight = FontWeight.Bold)
-                            Spacer(modifier = Modifier.weight(1f))
-                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF1AC022), modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Delivered", color = Color(0xFF1AC022), fontWeight = FontWeight.Bold)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Tracking ID: ${delivery.deliveryId}",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF1AC022), modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Delivered", color = Color(0xFF1AC022), fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                            }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("From: ${delivery.pickup.locationName}")
@@ -1313,9 +1436,7 @@ fun ProfileScreen(loggedInUser: User, globalDeliveries: List<Delivery>, paddingV
                                     }
                                 }
                             }
-                            if (delivery.tipAmount > 0) {
-                                Text("Tip: ₱${"%.2f".format(delivery.tipAmount)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            }
+
                             if (delivery.reviewComment.isNotBlank()) {
                                 Text("\"${delivery.reviewComment}\"", fontSize = 14.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
@@ -1374,7 +1495,7 @@ fun OrderTrackerBar(status: String) {
                     maxLines = 1,
                     softWrap = false,
                     overflow = TextOverflow.Ellipsis,
-                    color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Gray,
+                    color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                     fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
@@ -1413,6 +1534,8 @@ fun StatusBadge(status: String) {
 @Composable
 fun CourierMapDialog(
     delivery: Delivery,
+    loggedInUser: User,
+    viewModel: AppViewModel,
     onDismissRequest: () -> Unit
 ) {
     val context = LocalContext.current
@@ -1540,68 +1663,84 @@ fun CourierMapDialog(
                 }
                 
                 // Footer details
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 8.dp,
+                    shadowElevation = 8.dp
                 ) {
-                    var showChatDialog by remember { mutableStateOf(false) }
-
-                    Text(
-                        "Tracking Courier: ${delivery.courier?.name}", 
-                        fontWeight = FontWeight.Bold, 
-                        fontSize = 16.sp
-                    )
-                    Text(
-                        "Coords: %.5f, %.5f".format(delivery.courierLat, delivery.courierLng),
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                    
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Button(
-                            onClick = {
-                                val phoneNumber = delivery.courier?.phoneNumber ?: ""
-                                if (phoneNumber.isNotBlank()) {
-                                    val intent = Intent(Intent.ACTION_DIAL).apply {
-                                        data = Uri.parse("tel:$phoneNumber")
-                                    }
-                                    context.startActivity(intent)
-                                } else {
-                                    Toast.makeText(context, "No phone number available", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Call Courier")
-                        }
-                        
-                        Button(
-                            onClick = { showChatDialog = true },
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text("Chat")
-                        }
-                    }
+                        var showChatDialog by remember { mutableStateOf(false) }
 
-                    Button(
-                        onClick = onDismissRequest,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("Close Map")
-                    }
-
-                    if (showChatDialog) {
-                        ChatDialog(
-                            courierName = delivery.courier?.name ?: "Courier",
-                            onDismiss = { showChatDialog = false }
+                        Text(
+                            "Tracking ID: ${delivery.deliveryId}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.primary
                         )
+                        Text(
+                            "Tracking Courier: ${delivery.courier?.name ?: "N/A"}", 
+                            fontWeight = FontWeight.Bold, 
+                            fontSize = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Coords: %.5f, %.5f".format(delivery.courierLat, delivery.courierLng),
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = {
+                                    val phoneNumber = delivery.courier?.phoneNumber ?: ""
+                                    if (phoneNumber.isNotBlank()) {
+                                        val intent = Intent(Intent.ACTION_DIAL).apply {
+                                            data = Uri.parse("tel:$phoneNumber")
+                                        }
+                                        context.startActivity(intent)
+                                    } else {
+                                        Toast.makeText(context, "No phone number available", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Call Courier")
+                            }
+                            
+                            Button(
+                                onClick = { showChatDialog = true },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Chat")
+                            }
+                        }
+
+                        Button(
+                            onClick = onDismissRequest,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Close Map")
+                        }
+
+                        if (showChatDialog) {
+                            ChatDialog(
+                                delivery = delivery,
+                                loggedInUser = loggedInUser,
+                                viewModel = viewModel,
+                                onDismiss = { showChatDialog = false }
+                            )
+                        }
                     }
                 }
             }
@@ -1618,11 +1757,10 @@ fun CourierMapDialog(
 @Composable
 fun RatingReviewDialog(
     delivery: Delivery,
-    onSubmit: (rating: Int, tip: Double, comment: String) -> Unit,
+    onSubmit: (rating: Int, comment: String) -> Unit,
     onDismiss: () -> Unit
 ) {
     var rating by remember { mutableStateOf(0) }
-    var tipInput by remember { mutableStateOf("") }
     var commentInput by remember { mutableStateOf("") }
 
     Dialog(onDismissRequest = onDismiss) {
@@ -1668,17 +1806,6 @@ fun RatingReviewDialog(
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
-                // Tip Input
-                OutlinedTextField(
-                    value = tipInput,
-                    onValueChange = { tipInput = it },
-                    label = { Text("Leave a Tip (₱)") },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number)
-                )
-                
-                Spacer(modifier = Modifier.height(8.dp))
-                
                 // Comment Input
                 OutlinedTextField(
                     value = commentInput,
@@ -1699,8 +1826,7 @@ fun RatingReviewDialog(
                     }
                     Button(
                         onClick = {
-                            val tipAmount = tipInput.toDoubleOrNull() ?: 0.0
-                            onSubmit(rating, tipAmount, commentInput)
+                            onSubmit(rating, commentInput)
                         },
                         enabled = rating > 0
                     ) {
@@ -1735,12 +1861,39 @@ fun CourierDashboardPreview() {
 
 @Composable
 fun ChatDialog(
-    courierName: String,
+    delivery: Delivery,
+    loggedInUser: User,
+    viewModel: AppViewModel,
     onDismiss: () -> Unit
 ) {
-    var messages by remember { mutableStateOf(listOf<String>()) }
+    var messages by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var input by remember { mutableStateOf("") }
     val scrollState = rememberScrollState()
+
+    // Real-time Firestore listener for chat messages
+    DisposableEffect(delivery.deliveryId) {
+        val listener = viewModel.listenToChatMessages(delivery.deliveryId) { updatedMessages ->
+            messages = updatedMessages
+        }
+        onDispose {
+            listener.remove()
+        }
+    }
+
+    // Auto-scroll to bottom when new messages arrive
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            scrollState.animateScrollTo(scrollState.maxValue)
+        }
+    }
+
+    val partnerName = if (loggedInUser.userId == delivery.customer.userId) {
+        delivery.courier?.name ?: "Courier"
+    } else {
+        delivery.customer.name
+    }
+
+    val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -1749,7 +1902,7 @@ fun ChatDialog(
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .fillMaxHeight(0.7f)
+                .fillMaxHeight(0.75f)
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface
@@ -1764,12 +1917,32 @@ fun ChatDialog(
                         .background(MaterialTheme.colorScheme.primary)
                         .padding(16.dp)
                 ) {
-                    Text(
-                        text = "Chat with $courierName",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Chat with $partnerName",
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                            Text(
+                                text = "Tracking ID: ${delivery.deliveryId}",
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),
+                                fontSize = 12.sp
+                            )
+                        }
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Close",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                    }
                 }
 
                 // Messages list
@@ -1777,33 +1950,67 @@ fun ChatDialog(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .padding(8.dp)
+                        .padding(12.dp)
                         .verticalScroll(scrollState),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (messages.isEmpty()) {
-                        Text(
-                            text = "No messages yet. Say hi!",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
-                        )
-                    }
-                    messages.forEach { msg ->
-                        val isUser = msg.startsWith("You:")
                         Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
-                                modifier = Modifier.padding(horizontal = 8.dp)
+                            Text(
+                                text = "No messages yet. Send a message to start chatting!",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 13.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    } else {
+                        messages.forEach { msg ->
+                            val isMe = msg.senderId == loggedInUser.userId
+                            val formattedTime = if (msg.timestamp > 0) timeFormatter.format(java.util.Date(msg.timestamp)) else ""
+
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
                             ) {
-                                Text(
-                                    text = msg,
-                                    modifier = Modifier.padding(8.dp),
-                                    color = if (isUser) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSecondaryContainer
-                                )
+                                if (!isMe) {
+                                    Text(
+                                        text = msg.senderName,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(start = 4.dp, bottom = 2.dp)
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(
+                                        topStart = 12.dp,
+                                        topEnd = 12.dp,
+                                        bottomStart = if (isMe) 12.dp else 2.dp,
+                                        bottomEnd = if (isMe) 2.dp else 12.dp
+                                    ),
+                                    color = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondaryContainer,
+                                    modifier = Modifier.widthIn(max = 280.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(
+                                            text = msg.text,
+                                            fontSize = 14.sp,
+                                            color = if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer
+                                        )
+                                        if (formattedTime.isNotBlank()) {
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = formattedTime,
+                                                fontSize = 10.sp,
+                                                color = (if (isMe) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSecondaryContainer).copy(alpha = 0.7f),
+                                                modifier = Modifier.align(Alignment.End)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1819,20 +2026,34 @@ fun ChatDialog(
                     OutlinedTextField(
                         value = input,
                         onValueChange = { input = it },
+                        placeholder = { Text("Type a message...") },
                         modifier = Modifier.weight(1f),
-                        placeholder = { Text("Message...") },
-                        singleLine = true
+                        singleLine = true,
+                        shape = RoundedCornerShape(24.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Button(
+                    IconButton(
                         onClick = {
                             if (input.isNotBlank()) {
-                                messages = messages + "You: $input"
+                                val newMsg = ChatMessage(
+                                    senderId = loggedInUser.userId,
+                                    senderName = loggedInUser.name,
+                                    text = input.trim(),
+                                    timestamp = System.currentTimeMillis()
+                                )
+                                viewModel.sendChatMessage(delivery.deliveryId, newMsg)
                                 input = ""
                             }
-                        }
+                        },
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.primary, shape = androidx.compose.foundation.shape.CircleShape)
+                            .size(44.dp)
                     ) {
-                        Text("Send")
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            tint = MaterialTheme.colorScheme.onPrimary
+                        )
                     }
                 }
             }
@@ -1847,6 +2068,7 @@ fun TrackScreen(
     loggedInUser: User,
     globalDeliveries: List<Delivery>,
     onTrackDelivery: (Delivery) -> Unit,
+    onChatDelivery: (Delivery) -> Unit,
     onDeleteDelivery: ((Delivery) -> Unit)? = null
 ) {
     var searchQuery by remember { mutableStateOf("") }
@@ -1905,13 +2127,17 @@ fun TrackScreen(
                     delivery.customer.name.contains(searchQuery, ignoreCase = true) ||
                     (delivery.courier?.name?.contains(searchQuery, ignoreCase = true) == true)
             
-            (matchesUser || searchQuery.isNotBlank()) && matchesQuery
+            if (searchQuery.isBlank()) {
+                matchesUser && delivery.status != "Delivered"
+            } else {
+                (matchesUser || true) && matchesQuery
+            }
         }
 
         if (relevantDeliveries.isEmpty()) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
             ) {
                 Column(
@@ -1949,7 +2175,7 @@ fun TrackScreen(
             relevantDeliveries.forEach { delivery ->
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
@@ -1959,15 +2185,19 @@ fun TrackScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                "Delivery [${delivery.deliveryId}]",
+                                "Tracking ID: ${delivery.deliveryId}",
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
+                                modifier = Modifier.weight(1f)
                             )
-                            Spacer(modifier = Modifier.weight(1f))
-                            StatusBadge(status = delivery.status)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                StatusBadge(status = delivery.status)
+                            }
                         }
 
                         OrderTrackerBar(status = delivery.status)
@@ -2002,15 +2232,26 @@ fun TrackScreen(
                                     }
                                 }
 
+                                if (delivery.courier != null && delivery.status != "Delivered") {
+                                    Button(
+                                        onClick = { onChatDelivery(delivery) },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(Modifier.width(4.dp))
+                                        Text("Chat", fontSize = 12.sp)
+                                    }
+                                }
+
                                 if (isCustomerOwner && onDeleteDelivery != null) {
                                     OutlinedButton(
                                         onClick = { onDeleteDelivery(delivery) },
-                                        modifier = if (delivery.isCourierLocationAvailable && delivery.status != "Delivered") Modifier.weight(1f) else Modifier.fillMaxWidth(),
+                                        modifier = Modifier.weight(1f),
                                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                                     ) {
                                         Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
                                         Spacer(Modifier.width(4.dp))
-                                        Text("Modify / Delete Request", fontSize = 12.sp)
+                                        Text("Modify / Delete", fontSize = 12.sp)
                                     }
                                 }
                             }

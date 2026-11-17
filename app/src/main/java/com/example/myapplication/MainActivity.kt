@@ -3,27 +3,28 @@ package com.example.myapplication
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.myapplication.map.OsmSetup
+import com.example.myapplication.routedrop.AppViewModel
 import com.example.myapplication.routedrop.AuthManager
 import com.example.myapplication.routedrop.Customer
-import com.example.myapplication.routedrop.Delivery
-import com.example.myapplication.ui.LoginScreen
-import com.example.myapplication.map.OsmSetup
 import com.example.myapplication.routedrop.RouteDropScreen
-import com.example.myapplication.ui.SignUpScreen
 import com.example.myapplication.routedrop.User
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.example.myapplication.routedrop.AppViewModel
+import com.example.myapplication.ui.LoginScreen
+import com.example.myapplication.ui.SignUpScreen
 import com.example.myapplication.ui.theme.MyApplicationTheme
 
 enum class Screen {
@@ -55,67 +56,83 @@ class MainActivity : ComponentActivity() {
                     
                     var currentScreen by remember { mutableStateOf(Screen.LOGIN) }
                     var loggedInUser by remember { mutableStateOf<User?>(null) }
+                    var isCheckingAuth by remember { mutableStateOf(true) }
 
-                    // Auto-login on launch
+                    // Auto-login with Firebase Auth on launch
                     LaunchedEffect(Unit) {
-                        authManager.getSavedUser()?.let { savedUser ->
-                            registeredUsers.add(savedUser)
-                            loggedInUser = savedUser
-                            currentScreen = Screen.HOME
+                        authManager.fetchSavedUser { savedUser ->
+                            if (savedUser != null) {
+                                registeredUsers.add(savedUser)
+                                loggedInUser = savedUser
+                                currentScreen = Screen.HOME
+                            }
+                            isCheckingAuth = false
                         }
                     }
 
-                    when (currentScreen) {
-                        Screen.LOGIN -> {
-                            LoginScreen(
-                                registeredUsers = registeredUsers,
-                                onLoginSuccess = { user ->
-                                    authManager.saveUser(user)
-                                    loggedInUser = user
-                                    currentScreen = Screen.HOME
-                                },
-                                onNavigateToSignUp = {
-                                    currentScreen = Screen.SIGNUP
-                                },
-                                onGuestLogin = {
-                                    val guestUser = Customer(
-                                        userId = "guest_${System.currentTimeMillis()}",
-                                        name = "Guest User",
-                                        password = "",
-                                        emailAddress = "guest@example.com",
-                                        phoneNumber = "Not Provided",
-                                        address = "Exploring Mode"
-                                    )
-                                    // Don't save guest in SharedPreferences so it doesn't auto-login next time
-                                    loggedInUser = guestUser
-                                    currentScreen = Screen.HOME
-                                }
-                            )
+                    if (isCheckingAuth) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
                         }
-                        Screen.SIGNUP -> {
-                            SignUpScreen(
-                                onSignUpSuccess = { newUser ->
-                                    authManager.saveUser(newUser)
-                                    registeredUsers.add(newUser)
-                                    loggedInUser = newUser
-                                    currentScreen = Screen.HOME
-                                },
-                                onNavigateToLogin = {
-                                    currentScreen = Screen.LOGIN
-                                }
-                            )
-                        }
-                        Screen.HOME -> {
-                            loggedInUser?.let { user ->
-                                RouteDropScreen(
-                                    loggedInUser = user,
-                                    viewModel = appViewModel,
-                                    onLogout = {
-                                        authManager.clearUser()
-                                        loggedInUser = null
+                    } else {
+                        when (currentScreen) {
+                            Screen.LOGIN -> {
+                                LoginScreen(
+                                    authManager = authManager,
+                                    onLoginSuccess = { user ->
+                                        if (registeredUsers.none { it.userId == user.userId }) {
+                                            registeredUsers.add(user)
+                                        }
+                                        loggedInUser = user
+                                        currentScreen = Screen.HOME
+                                    },
+                                    onNavigateToSignUp = {
+                                        currentScreen = Screen.SIGNUP
+                                    },
+                                    onGuestLogin = {
+                                        val guestUser = Customer(
+                                            userId = "guest_${System.currentTimeMillis()}",
+                                            name = "Guest User",
+                                            password = "",
+                                            emailAddress = "guest@example.com",
+                                            phoneNumber = "Not Provided",
+                                            address = "Exploring Mode"
+                                        )
+                                        loggedInUser = guestUser
+                                        currentScreen = Screen.HOME
+                                    }
+                                )
+                            }
+                            Screen.SIGNUP -> {
+                                SignUpScreen(
+                                    authManager = authManager,
+                                    onSignUpSuccess = { newUser ->
+                                        if (registeredUsers.none { it.userId == newUser.userId }) {
+                                            registeredUsers.add(newUser)
+                                        }
+                                        loggedInUser = newUser
+                                        currentScreen = Screen.HOME
+                                    },
+                                    onNavigateToLogin = {
                                         currentScreen = Screen.LOGIN
                                     }
                                 )
+                            }
+                            Screen.HOME -> {
+                                loggedInUser?.let { user ->
+                                    RouteDropScreen(
+                                        loggedInUser = user,
+                                        viewModel = appViewModel,
+                                        onLogout = {
+                                            authManager.signOut()
+                                            loggedInUser = null
+                                            currentScreen = Screen.LOGIN
+                                        }
+                                    )
+                                }
                             }
                         }
                     }

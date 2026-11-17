@@ -32,7 +32,7 @@ class Customer(
     address: String = ""
 ) : User(userId, name, emailAddress, password, phoneNumber, address) {
     override fun role(): String = "CUSTOMER"
-    override fun display(): String = "Customer: $name | Email: $emailAddress | ID: $userId"
+    override fun display(): String = "Customer: $name\nEmail: $emailAddress\nID: $userId"
 }
 
 class Recipient(
@@ -44,7 +44,7 @@ class Recipient(
     address: String = ""
 ) : User(userId, name, emailAddress, password, phoneNumber, address) {
     override fun role(): String = "RECIPIENT"
-    override fun display(): String = "Recipient: $name | Email: $emailAddress | ID: $userId"
+    override fun display(): String = "Recipient: $name\nEmail: $emailAddress\nID: $userId"
 }
 
 class Courier(
@@ -59,7 +59,7 @@ class Courier(
     var isOnline: Boolean by mutableStateOf(true)
 
     override fun role(): String = "COURIER"
-    override fun display(): String = "Courier: $name | Vehicle: $vehicleType | ID: $userId"
+    override fun display(): String = "Courier: $name\nVehicle: $vehicleType\nID: $userId"
 }
 
 abstract class Location(
@@ -129,7 +129,6 @@ class Delivery(
     var isRated: Boolean by mutableStateOf(false)
     var rating: Int by mutableStateOf(0)
     var reviewComment: String by mutableStateOf("")
-    var tipAmount: Double by mutableDoubleStateOf(0.0)
 
     fun assignCourier(newCourier: Courier) {
         courier = newCourier
@@ -211,3 +210,11 @@ fun calculateFare(distanceKm: Double, vehicleType: String): Double {
     }
     return (baseFare + (distanceKm * perKmRate)) * multiplier
 }
+
+data class ChatMessage(
+    val messageId: String = "",
+    val senderId: String = "",
+    val senderName: String = "",
+    val text: String = "",
+    val timestamp: Long = System.currentTimeMillis()
+)

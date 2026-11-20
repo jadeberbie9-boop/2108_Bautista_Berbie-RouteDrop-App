@@ -13,8 +13,15 @@ data class RouteInfo(
     val geoPoints: List<GeoPoint>
 )
 
-object RoutingHelper {
+interface RouteProvider {
     suspend fun getRoute(
+        startLat: Double, startLng: Double,
+        endLat: Double, endLng: Double
+    ): RouteInfo?
+}
+
+object RoutingHelper : RouteProvider {
+    override suspend fun getRoute(
         startLat: Double, startLng: Double,
         endLat: Double, endLng: Double
     ): RouteInfo? = withContext(Dispatchers.IO) {

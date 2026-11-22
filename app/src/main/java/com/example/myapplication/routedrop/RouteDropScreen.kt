@@ -741,8 +741,10 @@ fun RouteDropScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         val warehouses = listOf(
-                            Triple("spx nasugbu new hub", 14.0736, 120.6322),
-                            Triple("Flash Express Nasugbu", 14.0740, 120.6320)
+                            Triple("YTO Express Nasugbu Branch", 14.0657, 120.6334),
+                            Triple("spx nasugbu new hub", 14.0576, 120.6390),
+                            Triple("Flash Express Nasugbu", 14.0738, 120.6311),
+                            Triple("J&T Express F-BALAYTIGUI DH", 14.1317, 120.5991)
                         )
                         warehouses.forEach { (name, lat, lng) ->
                             androidx.compose.material3.FilterChip(
@@ -853,17 +855,28 @@ fun RouteDropScreen(
                         OutlinedButton(
                             onClick = {
                                 val calendar = java.util.Calendar.getInstance()
-                                android.app.TimePickerDialog(
+                                android.app.DatePickerDialog(
                                     context,
-                                    { _, hourOfDay, minute ->
-                                        val c = java.util.Calendar.getInstance()
-                                        c.set(java.util.Calendar.HOUR_OF_DAY, hourOfDay)
-                                        c.set(java.util.Calendar.MINUTE, minute)
-                                        scheduledTime = c.timeInMillis
+                                    { _, year, month, dayOfMonth ->
+                                        android.app.TimePickerDialog(
+                                            context,
+                                            { _, hourOfDay, minute ->
+                                                val c = java.util.Calendar.getInstance()
+                                                c.set(java.util.Calendar.YEAR, year)
+                                                c.set(java.util.Calendar.MONTH, month)
+                                                c.set(java.util.Calendar.DAY_OF_MONTH, dayOfMonth)
+                                                c.set(java.util.Calendar.HOUR_OF_DAY, hourOfDay)
+                                                c.set(java.util.Calendar.MINUTE, minute)
+                                                scheduledTime = c.timeInMillis
+                                            },
+                                            calendar.get(java.util.Calendar.HOUR_OF_DAY),
+                                            calendar.get(java.util.Calendar.MINUTE),
+                                            false
+                                        ).show()
                                     },
-                                    calendar.get(java.util.Calendar.HOUR_OF_DAY),
-                                    calendar.get(java.util.Calendar.MINUTE),
-                                    false
+                                    calendar.get(java.util.Calendar.YEAR),
+                                    calendar.get(java.util.Calendar.MONTH),
+                                    calendar.get(java.util.Calendar.DAY_OF_MONTH)
                                 ).show()
                             }
                         ) {

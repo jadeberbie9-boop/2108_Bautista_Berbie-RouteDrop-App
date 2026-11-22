@@ -162,6 +162,9 @@ class AppViewModel : ViewModel() {
             "rating" to delivery.rating,
             "reviewComment" to delivery.reviewComment
         )
+        delivery.scheduledTime?.let { time ->
+            map["scheduledTime"] = time
+        }
 
         // Customer mapping
         map["customer"] = mapOf(
@@ -270,7 +273,8 @@ class AppViewModel : ViewModel() {
             details = details,
             requestedVehicle = (data["requestedVehicle"] as? String) ?: "Motorcycle",
             fare = (data["fare"] as? Number)?.toDouble() ?: 0.0,
-            recipientPhone = (data["recipientPhone"] as? String) ?: ""
+            recipientPhone = (data["recipientPhone"] as? String) ?: "",
+            scheduledTime = (data["scheduledTime"] as? Number)?.toLong()
         )
 
         delivery.status = (data["status"] as? String) ?: "Pending"

@@ -113,7 +113,8 @@ class Delivery(
     val details: DeliveryDetails,
     val requestedVehicle: String,
     val fare: Double,
-    val recipientPhone: String = ""
+    val recipientPhone: String = "",
+    val scheduledTime: Long? = null
 ) {
     var status: String by mutableStateOf("Pending")
     

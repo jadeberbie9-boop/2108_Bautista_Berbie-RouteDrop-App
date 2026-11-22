@@ -54,6 +54,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -143,6 +144,7 @@ fun RouteDropScreen(
     var pkgDesc by remember { mutableStateOf("School Documents") }
     var pkgInstructions by remember { mutableStateOf("Please handle carefully.") }
     var recipientPhoneInput by remember { mutableStateOf("") }
+    var scheduledTime by remember { mutableStateOf<Long?>(null) }
 
     var isGeotagging by remember { mutableStateOf(false) }
     var activeGeotagTarget by remember { mutableStateOf<String?>(null) } // "PICKUP", "DROPOFF", "SHARE_LOCATION", or "LIVE_TRACKING"
@@ -196,6 +198,7 @@ fun RouteDropScreen(
                             .filter { it.courier?.userId == loggedInUser.userId && it.status != "Delivered" }
                             .forEach { delivery ->
                                 delivery.updateCourierLocation(lat, lng)
+                                viewModel.updateDelivery(delivery) // BUG FIX: Must push to Firebase!
                             }
                     },
                     onError = {}
@@ -442,13 +445,17 @@ fun RouteDropScreen(
 
                 // 1. My Accepted Deliveries Section
                 if (myAcceptedDeliveries.isNotEmpty()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Default.LocalShipping, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text("My Accepted Deliveries", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.primary)
-                                }
-                        Spacer(modifier = Modifier.weight(1f))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.LocalShipping, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            Spacer(Modifier.width(8.dp))
+                            Text("My Accepted Deliveries", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        
                         Button(
                             onClick = {
                                 if (!isLiveTracking) {
@@ -508,6 +515,10 @@ fun RouteDropScreen(
                                     }
                                 }
                                 Text("Customer: ${delivery.customer.name}")
+                                val timeText = if (delivery.scheduledTime != null) {
+                                    java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(delivery.scheduledTime!!))
+                                } else "ASAP"
+                                Text("Schedule: $timeText", fontWeight = FontWeight.Bold)
                                 Text("Pickup: ${delivery.pickup.locationName}")
                                 Text("Drop-off: ${delivery.dropOff.locationName}")
                                 Text("Status: ${delivery.status}", color = MaterialTheme.colorScheme.onSecondaryContainer, fontWeight = FontWeight.Bold)
@@ -630,6 +641,12 @@ fun RouteDropScreen(
                                         Text("₱${"%.2f".format(delivery.fare)}", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary)
                                     }
                                     Text("Customer: ${delivery.customer.name}")
+                                    
+                                    val timeText = if (delivery.scheduledTime != null) {
+                                        java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(delivery.scheduledTime!!))
+                                    } else "ASAP"
+                                    Text("Schedule: $timeText", fontWeight = FontWeight.Bold)
+                                    
                                     Text("Pickup: ${delivery.pickup.locationName}")
                                     Text("Drop-off: ${delivery.dropOff.locationName}")
                                     Text("Package: ${delivery.details.packageDescription} (${delivery.requestedVehicle})", fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
@@ -714,6 +731,33 @@ fun RouteDropScreen(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Drop-off Location", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Spacer(modifier = Modifier.height(8.dp))
+                    
+                    Text("Quick Select Warehouse:", fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState())
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        val warehouses = listOf(
+                            Triple("spx nasugbu new hub", 14.0736, 120.6322),
+                            Triple("Flash Express Nasugbu", 14.0740, 120.6320)
+                        )
+                        warehouses.forEach { (name, lat, lng) ->
+                            androidx.compose.material3.FilterChip(
+                                selected = dropOffName == name,
+                                onClick = {
+                                    dropOffName = name
+                                    dropOffLat = lat
+                                    dropOffLng = lng
+                                },
+                                label = { Text(name) }
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(
                         value = dropOffName,
                         onValueChange = { dropOffName = it },
@@ -792,6 +836,43 @@ fun RouteDropScreen(
                                 )
                             ) {
                                 Text(vehicle)
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("Pickup Time:", fontWeight = FontWeight.Bold)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (scheduledTime == null) "ASAP" else java.text.SimpleDateFormat("MMM dd, yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(scheduledTime!!)),
+                            modifier = Modifier.weight(1f)
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                val calendar = java.util.Calendar.getInstance()
+                                android.app.TimePickerDialog(
+                                    context,
+                                    { _, hourOfDay, minute ->
+                                        val c = java.util.Calendar.getInstance()
+                                        c.set(java.util.Calendar.HOUR_OF_DAY, hourOfDay)
+                                        c.set(java.util.Calendar.MINUTE, minute)
+                                        scheduledTime = c.timeInMillis
+                                    },
+                                    calendar.get(java.util.Calendar.HOUR_OF_DAY),
+                                    calendar.get(java.util.Calendar.MINUTE),
+                                    false
+                                ).show()
+                            }
+                        ) {
+                            Text("Schedule")
+                        }
+                        if (scheduledTime != null) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            OutlinedButton(onClick = { scheduledTime = null }) {
+                                Text("Clear")
                             }
                         }
                     }
@@ -968,7 +1049,8 @@ fun RouteDropScreen(
                         details = details,
                         requestedVehicle = reqVehicle,
                         fare = estimatedFare,
-                        recipientPhone = recipientPhoneInput
+                        recipientPhone = recipientPhoneInput,
+                        scheduledTime = scheduledTime
                     )
 
                     viewModel.addDelivery(delivery)
@@ -977,6 +1059,7 @@ fun RouteDropScreen(
                     pkgDesc = ""
                     pkgInstructions = ""
                     recipientPhoneInput = ""
+                    scheduledTime = null
 
                     Toast.makeText(context, "Delivery Request Created!", Toast.LENGTH_SHORT).show()
                 },
@@ -1049,6 +1132,10 @@ fun RouteDropScreen(
                             Spacer(modifier = Modifier.height(12.dp))
                             Text("Courier: ${delivery.courier?.name ?: "Looking for courier..."}")
                             Spacer(modifier = Modifier.height(6.dp))
+                            val timeText = if (delivery.scheduledTime != null) {
+                                java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(delivery.scheduledTime!!))
+                            } else "ASAP"
+                            Text("Schedule: $timeText", fontWeight = FontWeight.Bold)
                             Text("Pickup: ${delivery.pickup.getAddress()}")
                             Text("Drop-off: ${delivery.dropOff.getAddress()}")
                             
@@ -1141,6 +1228,10 @@ fun RouteDropScreen(
                                 Text("From: ${delivery.customer.name}")
                                 Text("Courier: ${delivery.courier?.name ?: "Looking for courier..."}")
                                 Spacer(modifier = Modifier.height(6.dp))
+                                val timeText = if (delivery.scheduledTime != null) {
+                                    java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(delivery.scheduledTime!!))
+                                } else "ASAP"
+                                Text("Schedule: $timeText", fontWeight = FontWeight.Bold)
                                 Text("Pickup: ${delivery.pickup.getAddress()}")
                                 Text("Drop-off: ${delivery.dropOff.getAddress()}")
                                 
@@ -2220,6 +2311,10 @@ fun TrackScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("Package: ${delivery.details.packageDescription}", fontWeight = FontWeight.Medium)
                         Text("Courier: ${delivery.courier?.name ?: "Searching for courier..."}")
+                        val timeText = if (delivery.scheduledTime != null) {
+                            java.text.SimpleDateFormat("MMM dd, HH:mm", java.util.Locale.getDefault()).format(java.util.Date(delivery.scheduledTime!!))
+                        } else "ASAP"
+                        Text("Schedule: $timeText", fontWeight = FontWeight.Bold)
                         Text("Pickup: ${delivery.pickup.getAddress()}")
                         Text("Drop-off: ${delivery.dropOff.getAddress()}")
 
